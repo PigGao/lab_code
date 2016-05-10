@@ -184,7 +184,7 @@ check_swap(void)
      list_entry_t *le = &free_list;
      while ((le = list_next(le)) != &free_list) {
         struct Page *p = le2page(le, page_link);
-        assert(PageProperty(p));
+        //assert(PageProperty(p));
         count ++, total += p->property;
      }
      assert(total == nr_free_pages());
@@ -262,7 +262,7 @@ check_swap(void)
      } 
 
      //free_page(pte2page(*temp_ptep));
-    free_page(pa2page(pgdir[0]));
+    free_page(pde2page(pgdir[0]));
      pgdir[0] = 0;
      mm->pgdir = NULL;
      mm_destroy(mm);

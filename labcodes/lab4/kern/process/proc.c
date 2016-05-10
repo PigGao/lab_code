@@ -1,4 +1,4 @@
-#include <proc.h>
+#include "proc.h"
 #include <kmalloc.h>
 #include <string.h>
 #include <sync.h>
@@ -86,7 +86,7 @@ static struct proc_struct *
 alloc_proc(void) {
     struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
     if (proc != NULL) {
-    //LAB4:EXERCISE1 YOUR CODE
+    //LAB4:EXERCISE1 2012011393
     /*
      * below fields in proc_struct need to be initialized
      *       enum proc_state state;                      // Process state
@@ -102,6 +102,18 @@ alloc_proc(void) {
      *       uint32_t flags;                             // Process flag
      *       char name[PROC_NAME_LEN + 1];               // Process name
      */
+    proc->state = PROC_UNINIT;
+    proc->pid = -1;
+    proc->runs = 0;
+    proc->kstack = 0;
+    proc->need_resched = 0;
+    proc->parent = NULL;
+    proc->mm = NULL;
+    memset(&(proc->context),0,sizeof(proc->context));
+    proc->tf = NULL;
+    proc->cr3 = boot_cr3;
+    proc->flags = 0;
+    memset(proc->name,0,sizeof(char)*(PROC_NAME_LEN+1));
     }
     return proc;
 }
@@ -128,27 +140,30 @@ get_pid(void) {
     struct proc_struct *proc;
     list_entry_t *list = &proc_list, *le;
     static int next_safe = MAX_PID, last_pid = MAX_PID;
-    if (++ last_pid >= MAX_PID) {
+    //next_safe表示肯定能够使用的pid的最大值
+    //last_pid表示对应next_safe之前连续的空闲编号的最小值
+    if (++ last_pid >= MAX_PID) {//用完需要检查
         last_pid = 1;
         goto inside;
     }
-    if (last_pid >= next_safe) {
+    if (last_pid >= next_safe) {//此时会覆盖掉其他进程号
     inside:
         next_safe = MAX_PID;
     repeat:
         le = list;
-        while ((le = list_next(le)) != list) {
+        while ((le = list_next(le)) != list) {//遍历所有进程号
             proc = le2proc(le, list_link);
-            if (proc->pid == last_pid) {
-                if (++ last_pid >= next_safe) {
-                    if (last_pid >= MAX_PID) {
+            if (proc->pid == last_pid) {//此last_pid已经被占用
+                if (++ last_pid >= next_safe) {//将last_pid++， 若超过安全值
+                    if (last_pid >= MAX_PID) {//尝试超过max
                         last_pid = 1;
                     }
                     next_safe = MAX_PID;
-                    goto repeat;
+                    goto repeat;//重新遍历选择另一段安全值
                 }
+                //未超过安全值 则继续
             }
-            else if (proc->pid > last_pid && next_safe > proc->pid) {
+            else if (proc->pid > last_pid && next_safe > proc->pid) {//此pid介于尝试的和下一安全值之间，则说明安全值不安全
                 next_safe = proc->pid;
             }
         }
@@ -271,7 +286,7 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
         goto fork_out;
     }
     ret = -E_NO_MEM;
-    //LAB4:EXERCISE2 YOUR CODE
+    //LAB4:EXERCISE2 2012011393
     /*
      * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
      * MACROs or Functions:
@@ -290,12 +305,25 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
      */
 
     //    1. call alloc_proc to allocate a proc_struct
+    if((proc = alloc_proc()) == NULL)
+    	goto fork_out;
+    proc->parent = current;
     //    2. call setup_kstack to allocate a kernel stack for child process
+    if(setup_kstack(proc) != 0)
+    		goto bad_fork_cleanup_kstack;
     //    3. call copy_mm to dup OR share mm according clone_flag
+    copy_mm(clone_flags,proc);
     //    4. call copy_thread to setup tf & context in proc_struct
+	copy_thread(proc,stack,tf);
     //    5. insert proc_struct into hash_list && proc_list
+	proc->pid = get_pid(); // get_pid需要在hash之前，是根据pid值进行hash的
+	hash_proc(proc);
+    list_add(&proc_list, &(proc->list_link));
+    nr_process ++;
     //    6. call wakup_proc to make the new child process RUNNABLE
+	wakeup_proc(proc);
     //    7. set ret vaule using child proc's pid
+	ret = proc->pid;
 fork_out:
     return ret;
 
