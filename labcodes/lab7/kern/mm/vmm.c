@@ -257,6 +257,8 @@ check_vmm(void) {
     check_vma_struct();
     check_pgfault();
 
+//    assert(nr_free_pages_store == nr_free_pages());
+
     cprintf("check_vmm() succeeded.\n");
 }
 
@@ -317,6 +319,8 @@ check_vma_struct(void) {
 
     mm_destroy(mm);
 
+//    assert(nr_free_pages_store == nr_free_pages());
+
     cprintf("check_vma_struct() succeeded!\n");
 }
 
@@ -353,7 +357,7 @@ check_pgfault(void) {
     assert(sum == 0);
 
     page_remove(pgdir, ROUNDDOWN(addr, PGSIZE));
-    free_page(pde2page(pgdir[0]));
+    free_page(pa2page(pgdir[0]));
     pgdir[0] = 0;
 
     mm->pgdir = NULL;
@@ -493,16 +497,19 @@ do_pgfault(struct mm_struct *mm, uint32_t error_code, uintptr_t addr) {
         }
    }
 #endif
-    ptep = get_pte(mm->pgdir, addr, 1); //获得addr的对应页表项指针 mm为某个进程的页表
-    if(ptep == NULL)
-    	goto failed;
-
-    if(*ptep == 0)//页表项为空，未分配页，不需替换
-    {
-    	if(pgdir_alloc_page(mm->pgdir, addr, perm) == NULL)
-    		goto failed;
+    // try to find a pte, if pte's PT(Page Table) isn't existed, then create a PT.
+    // (notice the 3th parameter '1')
+    if ((ptep = get_pte(mm->pgdir, addr, 1)) == NULL) {
+        cprintf("get_pte in do_pgfault failed\n");
+        goto failed;
     }
-
+    
+    if (*ptep == 0) { // if the phy addr isn't exist, then alloc a page & map the phy addr with logical addr
+        if (pgdir_alloc_page(mm->pgdir, addr, perm) == NULL) {
+            cprintf("pgdir_alloc_page in do_pgfault failed\n");
+            goto failed;
+        }
+    }
     else {
         struct Page *page=NULL;
         cprintf("do pgfault: ptep %x, pte %x\n",ptep, *ptep);
